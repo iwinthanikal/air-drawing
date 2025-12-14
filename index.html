@@ -1,95 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Air Drawing</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8" />
+<title>Air Drawing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- MediaPipe -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-  <style>
-    body {
-      margin: 0;
-      background: black;
-      overflow: hidden;
-    }
-    video, canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-  </style>
+<style>
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: black;
+  }
+  video, canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    transform: scaleX(-1); /* mirror camera */
+  }
+</style>
 </head>
 
 <body>
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
 
-  <script>
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-    let prevX = null, prevY = null;
+let prevX = null, prevY = null;
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
 
-    const hands = new Hands({
-      locateFile: file =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
 
-    hands.setOptions({
-      maxNumHands: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.7
-    });
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
 
-    hands.onResults(results => {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+hands.onResults(results => {
+  if (!results.multiHandLandmarks) {
+    prevX = prevY = null;
+    return;
+  }
 
-      if (results.multiHandLandmarks) {
-        const lm = results.multiHandLandmarks[0];
+  const lm = results.multiHandLandmarks[0];
 
-        const ix = lm[8].x * canvas.width;
-        const iy = lm[8].y * canvas.height;
+  // index finger tip
+  const ix = (1 - lm[8].x) * canvas.width;
+  const iy = lm[8].y * canvas.height;
 
-        const tx = lm[4].x * canvas.width;
-        const ty = lm[4].y * canvas.height;
+  // thumb tip
+  const tx = (1 - lm[4].x) * canvas.width;
+  const ty = lm[4].y * canvas.height;
 
-        const dist = Math.hypot(ix - tx, iy - ty);
+  const dist = Math.hypot(ix - tx, iy - ty);
 
-        // pinch to draw
-        if (dist < 40) {
-          if (prevX !== null) {
-            ctx.strokeStyle = "white";
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.moveTo(prevX, prevY);
-            ctx.lineTo(ix, iy);
-            ctx.stroke();
-          }
-          prevX = ix;
-          prevY = iy;
-        } else {
-          prevX = prevY = null;
-        }
-      }
-    });
+  if (dist < 40) {
+    if (prevX !== null) {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 6;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(prevX, prevY);
+      ctx.lineTo(ix, iy);
+      ctx.stroke();
+    }
+    prevX = ix;
+    prevY = iy;
+  } else {
+    prevX = prevY = null;
+  }
+});
 
-    const camera = new Camera(video, {
-      onFrame: async () => {
-        await hands.send({ image: video });
-      },
-      width: canvas.width,
-      height: canvas.height
-    });
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  facingMode: "user"
+});
 
-    camera.start();
-  </script>
+camera.start();
+</script>
 </body>
 </html>
+

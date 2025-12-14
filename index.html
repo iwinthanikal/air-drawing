@@ -2,313 +2,123 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Pro Air Canvas</title>
+  <title>Air Drawing</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  
+
+  <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <style>
-    /* --- CSS Styles --- */
-    :root {
-      --bg-color: #1e1e1e;
-      --sidebar-width: 80px;
-      --accent: #00d2ff;
-    }
-
     body {
       margin: 0;
       overflow: hidden;
-      background: var(--bg-color);
-      font-family: 'Segoe UI', sans-serif;
-      display: flex;
+      background: black;
     }
 
-    /* Sidebar for Tools */
-    #toolbar {
-      width: var(--sidebar-width);
-      height: 100vh;
-      background: #252525;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding-top: 20px;
-      gap: 15px;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.5);
-      z-index: 20;
-    }
-
-    .tool-label {
-      color: #888;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-top: 10px;
-    }
-
-    /* Color Swatches */
-    .color-btn {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: 2px solid transparent;
-      cursor: pointer;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-    .color-btn:hover, .color-btn.active {
-      transform: scale(1.1);
-      border-color: white;
-    }
-
-    /* Size Slider */
-    input[type=range] {
-      writing-mode: bt-lr; /* IE */
-      -webkit-appearance: slider-vertical; /* WebKit */
-      width: 8px;
-      height: 100px;
-      padding: 0 5px;
-    }
-
-    #clearBtn {
-      margin-top: auto;
-      margin-bottom: 20px;
-      background: #ff4757;
-      color: white;
-      border: none;
-      padding: 10px;
-      width: 60px;
-      height: 60px;
-      border-radius: 12px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    /* Main Viewport */
-    #canvas-container {
-      position: relative;
-      flex-grow: 1;
-      height: 100vh;
-      background: #000;
-    }
-
-    /* Layers: Video at bottom, Drawing in middle, Cursor on top */
     video, canvas {
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
-      transform: scaleX(-1); /* Mirror effect */
-      object-fit: cover;
+      width: 100vw;
+      height: 100vh;
+      transform: scaleX(-1); /* mirror */
     }
 
-    #video { opacity: 0.6; } /* Dim video slightly so drawing pops */
-    #drawingCanvas { z-index: 2; }
-    #uiCanvas { z-index: 3; pointer-events: none; }
-
-    #loading {
-      position: absolute;
-      top: 50%; left: 55%;
-      transform: translate(-50%, -50%);
-      color: white;
-      font-size: 24px;
-      z-index: 100;
-      background: rgba(0,0,0,0.8);
-      padding: 20px;
+    #clearBtn {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 14px 24px;
+      font-size: 16px;
+      border: none;
       border-radius: 10px;
+      background: #ff3b3b;
+      color: white;
+      cursor: pointer;
+      z-index: 10;
     }
   </style>
 </head>
 
 <body>
-
-  <div id="toolbar">
-    <div class="tool-label">Color</div>
-    <div class="color-btn active" style="background: #00d2ff;" data-color="#00d2ff"></div>
-    <div class="color-btn" style="background: #ff4757;" data-color="#ff4757"></div>
-    <div class="color-btn" style="background: #2ed573;" data-color="#2ed573"></div>
-    <div class="color-btn" style="background: #ffa502;" data-color="#ffa502"></div>
-    <div class="color-btn" style="background: #ffffff;" data-color="#ffffff"></div>
-
-    <div class="tool-label">Size</div>
-    <input type="range" id="sizeSlider" min="2" max="20" value="6">
-
-    <button id="clearBtn">Clear</button>
-  </div>
-
-  <div id="canvas-container">
-    <div id="loading">Loading AI Model...</div>
-    <video id="video" autoplay playsinline></video>
-    <canvas id="drawingCanvas"></canvas>
-    <canvas id="uiCanvas"></canvas>
-  </div>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <button id="clearBtn">Clear</button>
 
   <script>
-    /* --- Logic --- */
-    const videoElement = document.getElementById('video');
-    const drawCanvas = document.getElementById('drawingCanvas');
-    const uiCanvas = document.getElementById('uiCanvas');
-    const drawCtx = drawCanvas.getContext('2d');
-    const uiCtx = uiCanvas.getContext('2d');
-    const loading = document.getElementById('loading');
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
-    // State Variables
-    let isDrawing = false;
-    let currentColor = "#00d2ff";
-    let currentSize = 6;
-    
-    // Smooth Pointer Variables (Lerping)
-    let drawX = 0, drawY = 0; // The smoothed coordinates
-    let rawX = 0, rawY = 0;   // The raw coordinates from MediaPipe
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-    // 1. Setup Canvas Sizing
-    function resize() {
-      drawCanvas.width = uiCanvas.width = videoElement.clientWidth;
-      drawCanvas.height = uiCanvas.height = videoElement.clientHeight;
-    }
-    window.addEventListener('resize', resize);
+    let prevX = null;
+    let prevY = null;
 
-    // 2. Toolbar Logic
-    document.querySelectorAll('.color-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentColor = btn.getAttribute('data-color');
-      });
-    });
-
-    document.getElementById('sizeSlider').addEventListener('input', (e) => {
-      currentSize = parseInt(e.target.value);
-    });
-
-    document.getElementById('clearBtn').addEventListener('click', () => {
-      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    });
-
-    // 3. Linear Interpolation for smoothing
-    function lerp(start, end, amt) {
-      return (1 - amt) * start + amt * end;
-    }
-
-    // 4. MediaPipe Setup
     const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
     });
 
     hands.setOptions({
       maxNumHands: 1,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.7
+      minTrackingConfidence: 0.7,
     });
 
-    hands.onResults(onResults);
-
-    // 5. Main Loop
-    function onResults(results) {
-      // Clear UI layer every frame (cursor), but keep Drawing layer
-      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
-
-      if (loading.style.display !== 'none') {
-        loading.style.display = 'none';
-        resize(); // Fix canvas size on first load
+    hands.onResults((results) => {
+      if (!results.multiHandLandmarks) {
+        prevX = prevY = null;
+        return;
       }
 
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
+      const lm = results.multiHandLandmarks[0];
 
-        // Get Coordinates (Index Tip & Thumb Tip)
-        const indexTip = landmarks[8];
-        const thumbTip = landmarks[4];
+      // index finger tip
+      const ix = (1 - lm[8].x) * canvas.width;
+      const iy = lm[8].y * canvas.height;
 
-        // Map 0-1 coords to Canvas Size
-        const width = uiCanvas.width;
-        const height = uiCanvas.height;
+      // thumb tip
+      const tx = (1 - lm[4].x) * canvas.width;
+      const ty = lm[4].y * canvas.height;
 
-        // Invert X because we mirrored the canvas with CSS
-        const ix = (1 - indexTip.x) * width;
-        const iy = indexTip.y * height;
-        const tx = (1 - thumbTip.x) * width;
-        const ty = thumbTip.y * height;
+      const dist = Math.hypot(ix - tx, iy - ty);
 
-        // Calculate Pinch Distance
-        const distance = Math.hypot(ix - tx, iy - ty);
-        const pinchThreshold = 50; // pixels
-
-        // --- Smoothing Logic ---
-        // If this is the very first frame, jump to position. Otherwise, slide there.
-        if (rawX === 0 && rawY === 0) {
-          drawX = ix; drawY = iy;
-        } else {
-          // 0.2 = Smoothing factor. Lower = smoother but more lag. Higher = responsive but jittery.
-          drawX = lerp(drawX, ix, 0.2); 
-          drawY = lerp(drawY, iy, 0.2);
+      // pinch to draw
+      if (dist < 40) {
+        if (prevX !== null) {
+          ctx.strokeStyle = "white";
+          ctx.lineWidth = 6;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(prevX, prevY);
+          ctx.lineTo(ix, iy);
+          ctx.stroke();
         }
-        
-        rawX = ix;
-        rawY = iy;
-
-        // --- Drawing State ---
-        if (distance < pinchThreshold) {
-          // Pinch Detected!
-          if (!isDrawing) {
-            isDrawing = true;
-            drawCtx.beginPath(); // Start new line segment
-            drawCtx.moveTo(drawX, drawY);
-          } else {
-            // Continue drawing
-            drawCtx.lineTo(drawX, drawY);
-            drawCtx.strokeStyle = currentColor;
-            drawCtx.lineWidth = currentSize;
-            drawCtx.lineCap = "round";
-            drawCtx.lineJoin = "round";
-            drawCtx.stroke();
-          }
-
-          // Visual Feedback: Green Cursor + Line to thumb
-          drawCursor(uiCtx, drawX, drawY, tx, ty, true);
-
-        } else {
-          // No Pinch
-          isDrawing = false;
-          drawCtx.beginPath(); // Reset path so we don't drag lines across screen
-          
-          // Visual Feedback: Red Hover Cursor
-          drawCursor(uiCtx, drawX, drawY, tx, ty, false);
-        }
+        prevX = ix;
+        prevY = iy;
+      } else {
+        prevX = prevY = null;
       }
-    }
+    });
 
-    // Helper to draw the UI overlay (Cursor)
-    function drawCursor(ctx, x, y, tx, ty, active) {
-      ctx.beginPath();
-      ctx.arc(x, y, active ? 10 : 5, 0, Math.PI * 2);
-      ctx.fillStyle = active ? "#2ed573" : "rgba(255, 71, 87, 0.5)";
-      ctx.fill();
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Optional: Draw line between finger and thumb to show "pinch" mechanic
-      if (!active) {
-         ctx.beginPath();
-         ctx.moveTo(x,y);
-         ctx.lineTo(tx, ty);
-         ctx.strokeStyle = "rgba(255,255,255,0.3)";
-         ctx.stroke();
-      }
-    }
-
-    // 6. Camera Start
-    const camera = new Camera(videoElement, {
+    const camera = new Camera(video, {
       onFrame: async () => {
-        await hands.send({ image: videoElement });
+        await hands.send({ image: video });
       },
       width: 1280,
-      height: 720
+      height: 720,
     });
+
     camera.start();
 
+    document.getElementById("clearBtn").onclick = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
   </script>
 </body>
 </html>

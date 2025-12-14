@@ -3,55 +3,95 @@
 <head>
 <meta charset="UTF-8" />
 <title>Air Drawing</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 
+<!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
-  body {
-    margin: 0;
-    overflow: hidden;
-    background: black;
-  }
-  video, canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    transform: scaleX(-1); /* mirror camera */
-  }
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: black;
+  touch-action: none;
+}
+
+video, canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scaleX(-1); /* mirror FIX */
+}
+
+#ui {
+  position: fixed;
+  bottom: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+button, input {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  font-size: 16px;
+}
+
+button {
+  background: #ff3b3b;
+  color: white;
+}
+
+input[type="color"] {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
 </style>
 </head>
 
 <body>
-<video id="video" autoplay playsinline muted></video>
+
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
+
+<div id="ui">
+  <input type="color" id="color" value="#ffffff">
+  <button id="clear">Clear</button>
+</div>
 
 <script>
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+const colorPicker = document.getElementById("color");
+const clearBtn = document.getElementById("clear");
 
-let prevX = null, prevY = null;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener("resize", resize);
+let prevX = null;
+let prevY = null;
+let drawColor = "#ffffff";
+
+colorPicker.oninput = e => drawColor = e.target.value;
+clearBtn.onclick = () => ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 const hands = new Hands({
-  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  locateFile: file =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
 
 hands.setOptions({
   maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
+  modelComplexity: 0,       // FAST for mobile
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.6
 });
 
 hands.onResults(results => {
@@ -62,19 +102,17 @@ hands.onResults(results => {
 
   const lm = results.multiHandLandmarks[0];
 
-  // index finger tip
-  const ix = (1 - lm[8].x) * canvas.width;
+  const ix = lm[8].x * canvas.width;
   const iy = lm[8].y * canvas.height;
-
-  // thumb tip
-  const tx = (1 - lm[4].x) * canvas.width;
+  const tx = lm[4].x * canvas.width;
   const ty = lm[4].y * canvas.height;
 
   const dist = Math.hypot(ix - tx, iy - ty);
 
+  // pinch = draw
   if (dist < 40) {
     if (prevX !== null) {
-      ctx.strokeStyle = "white";
+      ctx.strokeStyle = drawColor;
       ctx.lineWidth = 6;
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -93,11 +131,12 @@ const camera = new Camera(video, {
   onFrame: async () => {
     await hands.send({ image: video });
   },
-  facingMode: "user"
+  width: canvas.width,
+  height: canvas.height
 });
 
 camera.start();
 </script>
+
 </body>
 </html>
-

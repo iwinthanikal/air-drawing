@@ -1,142 +1,124 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Air Drawing</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta charset="UTF-8" />
+  <title>Air Drawing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  background: black;
-  overflow: hidden;
-  touch-action: none;
-}
-video, canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-#controls {
-  position: fixed;
-  bottom: 20px;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-}
-button {
-  padding: 14px 20px;
-  font-size: 16px;
-  border-radius: 10px;
-  border: none;
-}
-</style>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+    }
+
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      transform: scaleX(-1); /* mirror */
+    }
+
+    #clearBtn {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 14px 24px;
+      font-size: 16px;
+      border: none;
+      border-radius: 10px;
+      background: #ff3b3b;
+      color: white;
+      cursor: pointer;
+      z-index: 10;
+    }
+  </style>
 </head>
 
 <body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <button id="clearBtn">Clear</button>
 
-<video id="video" playsinline></video>
-<canvas id="canvas"></canvas>
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
-<div id="controls">
-  <button onclick="clearCanvas()" style="background:#e74c3c;color:white;">Clear</button>
-</div>
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-<script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+    let prevX = null;
+    let prevY = null;
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+    const hands = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    });
 
-let prevX = null, prevY = null;
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7,
+    });
 
-// ---- HANDS ----
-const hands = new Hands({
-  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-});
+    hands.onResults((results) => {
+      if (!results.multiHandLandmarks) {
+        prevX = prevY = null;
+        return;
+      }
 
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 0,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
+      const lm = results.multiHandLandmarks[0];
 
-hands.onResults(results => {
-  if (!results.multiHandLandmarks) return;
+      // index finger tip
+      const ix = (1 - lm[8].x) * canvas.width;
+      const iy = lm[8].y * canvas.height;
 
-  const lm = results.multiHandLandmarks[0];
-  const ix = lm[8].x * canvas.width;
-  const iy = lm[8].y * canvas.height;
-  const tx = lm[4].x * canvas.width;
-  const ty = lm[4].y * canvas.height;
+      // thumb tip
+      const tx = (1 - lm[4].x) * canvas.width;
+      const ty = lm[4].y * canvas.height;
 
-  const dist = Math.hypot(ix - tx, iy - ty);
+      const dist = Math.hypot(ix - tx, iy - ty);
 
-  if (dist < 45) {
-    if (prevX !== null) {
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 6;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(prevX, prevY);
-      ctx.lineTo(ix, iy);
-      ctx.stroke();
-    }
-    prevX = ix;
-    prevY = iy;
-  } else {
-    prevX = prevY = null;
-  }
-});
+      // pinch to draw
+      if (dist < 40) {
+        if (prevX !== null) {
+          ctx.strokeStyle = "white";
+          ctx.lineWidth = 6;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(prevX, prevY);
+          ctx.lineTo(ix, iy);
+          ctx.stroke();
+        }
+        prevX = ix;
+        prevY = iy;
+      } else {
+        prevX = prevY = null;
+      }
+    });
 
-// ---- CAMERA ----
-const camera = new Camera(video, {
-  onFrame: async () => {
-    await hands.send({ image: video });
-  },
-  facingMode: "environment", // rear camera works better on iPhone
-  width: canvas.width,
-  height: canvas.height
-});
-camera.start();
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: 1280,
+      height: 720,
+    });
 
-// ---- TOUCH FALLBACK (PHONE GUARANTEE) ----
-let drawing = false;
-canvas.addEventListener("touchstart", e => {
-  drawing = true;
-  prevX = e.touches[0].clientX;
-  prevY = e.touches[0].clientY;
-});
-canvas.addEventListener("touchmove", e => {
-  if (!drawing) return;
-  const x = e.touches[0].clientX;
-  const y = e.touches[0].clientY;
-  ctx.strokeStyle = "white";
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.moveTo(prevX, prevY);
-  ctx.lineTo(x, y);
-  ctx.stroke();
-  prevX = x;
-  prevY = y;
-});
-canvas.addEventListener("touchend", () => {
-  drawing = false;
-  prevX = prevY = null;
-});
+    camera.start();
 
-function clearCanvas() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-</script>
-
+    document.getElementById("clearBtn").onclick = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  </script>
 </body>
 </html>
